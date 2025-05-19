@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Bird NEAT AI</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script> <!-- p5.js library -->
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/addons/p5.sound.min.js"></script> --> <!-- Optional for sound -->
+    <script src="https://cdn.jsdelivr.net/npm/neataptic@latest/dist/neataptic.js"></script> <!-- Neataptic.js library -->
+    <style>
+        body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f0f0f0; }
+        canvas { border: 1px solid black; }
+    </style>
+</head>
+<body>
+    <script>
+        // --- Constants & Global Variables ---
+        const SCREEN_WIDTH = 400;
+        const SCREEN_HEIGHT = 600;
+        const GRAVITY = 0.6;
+        const FLAP_STRENGTH = -10;
+        const PIPE_WIDTH = 80;
+        const PIPE_GAP = 150;
+        const PIPE_SPEED = 3;
+        const PIPE_SPAWN_INTERVAL = 120; // frames
+
+        let birds = [];
+        let pipes = [];
+        let score = 0;
+        let generation = 0;
+        let gameFrame = 0;
+        let bestScore = 0;
+
+        let neat;
+        const POPULATION_SIZE = 50;
+        const INPUT_NODES = 5; // Bird Y, Bird Vel Y, Pipe X Dist, Gap Top Y, Gap Bottom Y
+        const OUTPUT_NODES = 1; // Flap?
+
+        let activeBirds = []; // Birds currently playing in this generation
+        let allTimeBestGenome = null;
+
+        // --- p5.js Setup Function ---
+        function setup() {
+            createCanvas(SCREEN_WIDTH, SCREEN_HEIGHT);
+            // Initialize NEAT
+            neat = new neataptic.Neat(
+                INPUT_NODES,
+                OUTPUT_NODES,
+                null, // No custom fitness function needed here, we'll manage it
+                {
+                    mutation: [ // Neataptic mutation methods
+                        neataptic.methods.mutation.ADD_NODE,
+                        neataptic.methods.mutation.SUB_NODE,
+ убийствmutation.ADD_CONN,
+                        neataptic.methods.mutation.SUB_CONN,
+                        neataptic.methods.mutation.MOD_WEIGHT,
+                        neataptic.methods.mutation.MOD_BIAS,
+                        neataptic.methods.mutation.MOD_ACTIVATION,
+                        neataptic.methods.mutation.ADD_GATE,
+                        neataptic.methods.mutation.SUB_GATE,
+                        neataptic.methods.mutation.ADD_SELF_CONN,
+                        neataptic.methods.mutation.SUB_SELF_CONN,
+                        neataptic.methods.mutation.ADD_BACK_CONN,
+                        neataptic.methods.mutation.SUB_BACK_CONN
+                    ],
+                    popsize: POPULATION_SIZE,
+                    mutationRate: 0.3, // Example mutation rate
+                    elitism: Math.round(0.1 * POPULATION_SIZE), // Keep top 10%
+                    network: new neataptic.architect.Random(INPUT_NODES, Math.floor(INPUT_NODES/2) + OUTPUT_NODES, OUTPUT_NODES) // Initial random network
+                }
+            );
+
+            startNextGeneration();
+        }
+
+        function startNextGeneration() {
+            generation++;
+            pipes = [];
+            addPipe(); // Add initial pipe
+            activeBirds = [];
+            gameFrame = 0;
+
+            if (neat.population.length === 0) { // Should only happen on first run
+                 for (let i = 0; i < POPULATION_SIZE; i++) {
+                    let genome = neat.getOffspring(); // Neataptic creates initial population
+                    activeBirds.push(new Bird(genome));
+                }
+            } else {
+                // Create new population from the old one based on fitness
+                neat.sort(); // Sort by fitness (Neataptic handles this internally with genome.score)
+                if(allTimeBestGenome == null || neat.population[0].score > allTimeBestGenome.score) {
+                    allTimeBestGenome = neat.population[0]; // Keep track of the absolute best
+                    console.log("New all time best score: " + allTimeBestGenome.score);
+                }
+
+                let newPopulation = [];
+                // Elitism: copy the best genomes
+                for(let i = 0; i < neat.elitism; i++) {
+                    newPopulation.push(neat.population[i]);
+                }
+                // Breed the rest
+                for(let i = 0; i < POPULATION_SIZE - neat.elitism; i++) {
+                    newPopulation.push(neat.getOffspring());
+                }
+                neat.population = newPopulation; // Replace old population
+
+                // Create bird instances for the new generation
+                for(let genome of neat.population) {
+                    genome.score = 0; // Reset score for the new run
+                    activeBirds.push(new Bird(genome));
+                }
+            }
+            score = 0; // Reset score for the new generation display
+        }
+
+
+        // --- p5.js Draw Function (Game Loop) ---
+        function draw() {
+            background(135, 206, 235); // Sky blue
+
+            if (activeBirds.length === 0) {
+                startNextGeneration();
+            }
+
+            // --- Pipe Logic ---
+            if (gameFrame % PIPE_SPAWN_INTERVAL === 0) {
+                addPipe();
+            }
+            for (let i = pipes.length - 1; i >= 0; i--) {
+                pipes[i].update();
+                pipes[i].show();
+                if (pipes[i].offscreen()) {
+                    pipes.splice(i, 1);
+                }
+            }
+
+            // --- Bird Logic & AI ---
+            let currentMaxScoreInGen = 0;
+            for (let i = activeBirds.length - 1; i >= 0; i--) {
+                let bird = activeBirds[i];
+                if (bird.alive) {
+                    // 1. Get Observations
+                    let closestPipe = getClosestPipe(bird);
+                    let inputs = [
+                        normalize(bird.y, 0, SCREEN_HEIGHT),
+                        normalize(bird.velocity, -15, 15), // Estimate typical velocity range
+                        normalize(closestPipe ? closestPipe.x - bird.x : SCREEN_WIDTH, 0, SCREEN_WIDTH),
+                        normalize(closestPipe ? closestPipe.topPipeY + PIPE_GAP : SCREEN_HEIGHT / 2, 0, SCREEN_HEIGHT), // y of bottom of top pipe
+                        normalize(closestPipe ? closestPipe.topPipeY : SCREEN_HEIGHT / 2 - PIPE_GAP, 0, SCREEN_HEIGHT)     // y of top of bottom pipe
+                    ];
+
+                    // 2. Get Action from Neural Network
+                    let output = bird.genome.activate(inputs);
+
+                    // 3. Perform Action
+                    if (output[0] > 0.5) {
+                        bird.flap();
+                    }
+
+                    bird.update();
+                    bird.show();
+
+                    // Collision and scoring
+                    if (bird.hits(pipes) || bird.offScreen()) {
+                        bird.alive = false;
+                        // activeBirds.splice(i, 1); // Remove dead bird
+                    } else {
+                        bird.score++; // Fitness based on survival time
+                        bird.genome.score = bird.score; // Update Neataptic genome score
+                        if (bird.score > score) score = bird.score; // Update display score
+                        if (bird.score > bestScore) bestScore = bird.score; // Update all-time best
+                         if (bird.score > currentMaxScoreInGen) currentMaxScoreInGen = bird.score;
+                    }
+                }
+            }
+            // Remove dead birds after iterating
+            activeBirds = activeBirds.filter(bird => bird.alive);
+
+
+            // --- Display Info ---
+            fill(0);
+            textSize(20);
+            text(`Generation: ${generation}`, 10, 30);
+            text(`Score: ${score}`, 10, 60);
+            text(`Alive: ${activeBirds.length}/${POPULATION_SIZE}`, 10, 90);
+            text(`Best Score: ${bestScore}`, 10, 120);
+
+
+            gameFrame++;
+        }
+
+        function normalize(value, min, max) {
+            // Simple normalization to 0-1 range, can be improved
+            if (max - min === 0) return 0.5; // Avoid division by zero
+            let norm = (value - min) / (max - min);
+            return constrain(norm, 0, 1); // p5.js constrain function
+        }
+
+        function getClosestPipe(bird) {
+            let closest = null;
+            let closestDist = Infinity;
+            for (let pipe of pipes) {
+                if (!pipe.passedBird && pipe.x + PIPE_WIDTH > bird.x) {
+                    let d = (pipe.x + PIPE_WIDTH) - bird.x;
+                    if (d < closestDist) {
+                        closestDist = d;
+                        closest = pipe;
+                    }
+                }
+            }
+            return closest;
+        }
+
+        // --- Bird Class ---
+        class Bird {
+            constructor(genome) {
+                this.x = 60;
+                this.y = SCREEN_HEIGHT / 2;
+                this.velocity = 0;
+                this.radius = 16; // For drawing and simple collision
+                this.genome = genome;
+                this.score = 0; // For this bird's current run
+                this.alive = true;
+            }
+
+            show() {
+                fill(255, 255, 0); // Yellow
+                ellipse(this.x, this.y, this.radius * 2, this.radius * 2);
+            }
+
+            flap() {
+                this.velocity = FLAP_STRENGTH;
+            }
+
+            update() {
+                this.velocity += GRAVITY;
+                this.y += this.velocity;
+                this.score++; // Bird survives another frame
+            }
+
+            offScreen() {
+                return (this.y > SCREEN_HEIGHT - this.radius || this.y < this.radius);
+            }
+
+            hits(pipesToCheck) {
+                for (let pipe of pipesToCheck) {
+                    // Check collision with top pipe
+                    if (this.x + this.radius > pipe.x && this.x - this.radius < pipe.x + PIPE_WIDTH) {
+                        if (this.y - this.radius < pipe.topPipeY || this.y + this.radius > pipe.topPipeY + PIPE_GAP) {
+                            if (!pipe.passedBird) { // Only count collision if bird is in the pipe's x-range
+                                return true;
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+        }
+
+        // --- Pipe Class ---
+        class Pipe {
+            constructor() {
+                this.x = SCREEN_WIDTH;
+                this.w = PIPE_WIDTH;
+                // Random height for the top pipe's bottom edge
+                this.topPipeY = random(SCREEN_HEIGHT / 6, (3 / 4) * SCREEN_HEIGHT - PIPE_GAP);
+                this.passedBird = false; // To help with scoring
+            }
+
+            show() {
+                fill(0, 200, 0); // Green
+                // Top pipe
+                rect(this.x, 0, this.w, this.topPipeY);
+                // Bottom pipe
+                rect(this.x, this.topPipeY + PIPE_GAP, this.w, SCREEN_HEIGHT - (this.topPipeY + PIPE_GAP));
+            }
+
+            update() {
+                this.x -= PIPE_SPEED;
+
+                // Check if bird passed this pipe (for scoring)
+                // This logic might need refinement, usually handled when a pipe is added
+                // or when its x passes the bird's x.
+                // For simplicity, let's assume we check this elsewhere or base scoring on survival.
+            }
+
+            offscreen() {
+                return (this.x < -this.w);
+            }
+        }
+
+        function addPipe() {
+            pipes.push(new Pipe());
+        }
+
+    </script>
+</body>
+</html>
