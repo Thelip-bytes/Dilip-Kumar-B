@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Location - Reverse Geocoding</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .section {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .section h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+        }
+        
+        .location-button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-bottom: 15px;
+        }
+        
+        .location-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 7px 25px rgba(0,0,0,0.2);
+        }
+        
+        .location-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .coordinates-display {
+            background: #f0f4ff;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 20px;
+            border: 2px solid #667eea;
+            word-break: break-all;
+        }
+        
+        .coordinates-display .label {
+            font-weight: 600;
+            color: #667eea;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .coordinates-display .coords {
+            font-size: 18px;
+            color: #333;
+            letter-spacing: 1px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .error {
+            background: #fee;
+            border: 2px solid #e74c3c;
+            color: #e74c3c;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+        
+        .results-header {
+            margin: 25px 0 15px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+            color: #667eea;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .results-count {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .results-list {
+            max-height: 600px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+        
+        .result-item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 12px;
+            border-radius: 10px;
+            border-left: 5px solid #667eea;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        
+        .result-item:hover {
+            transform: translateX(5px);
+        }
+        
+        .result-item:first-child {
+            border-left-color: #28a745;
+            background: #f0fff4;
+        }
+        
+        .result-item .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .result-item:first-child .badge {
+            background: #28a745;
+            color: white;
+        }
+        
+        .result-item:not(:first-child) .badge {
+            background: #667eea;
+            color: white;
+        }
+        
+        .result-item .address {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+            font-size: 16px;
+        }
+        
+        .result-item .types {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 8px;
+            font-style: italic;
+        }
+        
+        .result-item .metadata {
+            font-size: 12px;
+            color: #555;
+            background: #f8f9fa;
+            padding: 8px;
+            border-radius: 5px;
+        }
+        
+        .result-item .metadata .meta-row {
+            margin-bottom: 4px;
+        }
+        
+        .result-item .metadata .label {
+            font-weight: 600;
+            color: #667eea;
+        }
+        
+        .precision-info {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 12px;
+            border-radius: 5px;
+            font-size: 13px;
+            color: #856404;
+            margin-top: 10px;
+        }
+        
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 2em;
+            }
+            
+            .section {
+                padding: 20px;
+            }
+            
+            .coordinates-display .coords {
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📍 My Location Finder</h1>
+        
+        <div class="section">
+            <h2>Get Location from Browser</h2>
+            <p style="margin-bottom: 20px; color: #666;">Click the button to get your current coordinates and all matching addresses.</p>
+            
+            <button id="location-btn" class="location-button" onclick="getBrowserLocation()">
+                🌍 Get My Current Location
+            </button>
+            
+            <div id="coordinates-display" class="coordinates-display" style="display: none;">
+                <span class="label">Your Exact Coordinates:</span>
+                <span class="coords" id="coords-text"></span>
+                <div class="precision-info">
+                    💡 Full precision from browser API (7-10 decimal places = millimeter-level accuracy)
+                </div>
+            </div>
+            
+            <div id="loading-message" class="loading" style="display: none;">
+                📡 Getting your location...
+            </div>
+            
+            <div id="error-message" class="error" style="display: none;"></div>
+            
+            <div id="results-container" style="display: none;">
+                <h3 class="results-header">
+                    📋 All Found Addresses
+                    <span class="results-count" id="results-count"></span>
+                </h3>
+                <div id="results-list" class="results-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_KEY = 'AIzaSyAzQs4HOBH9b53dUXKvHI8Fs2f-IdVwQKI';
+
+        function getBrowserLocation() {
+            if (!navigator.geolocation) {
+                showError('❌ Geolocation is not supported by your browser');
+                return;
+            }
+
+            showLoading();
+            clearResults();
+            
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    // Get coordinates with full precision (no rounding)
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    
+                    showCoordinates(lat, lng);
+                    reverseGeocode(lat, lng);
+                },
+                (error) => {
+                    let errorMessage = '❌ Error getting location: ';
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            errorMessage += 'Permission denied. Please allow location access and try again.';
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            errorMessage += 'Location information is unavailable.';
+                            break;
+                        case error.TIMEOUT:
+                            errorMessage += 'Location request timed out. Try again.';
+                            break;
+                        default:
+                            errorMessage += 'An unknown error occurred.';
+                    }
+                    showError(errorMessage);
+                    hideLoading();
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                }
+            );
+        }
+
+        function showLoading() {
+            document.getElementById('loading-message').style.display = 'block';
+            document.getElementById('location-btn').disabled = true;
+            document.getElementById('location-btn').textContent = '⏳ Getting Location...';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading-message').style.display = 'none';
+            document.getElementById('location-btn').disabled = false;
+            document.getElementById('location-btn').textContent = '🌍 Get My Current Location';
+        }
+
+        function showCoordinates(lat, lng) {
+            const display = document.getElementById('coordinates-display');
+            const coordsText = document.getElementById('coords-text');
+            
+            // Show full precision coordinates (no toFixed limit)
+            coordsText.textContent = `Lat: ${lat}, Lng: ${lng}`;
+            display.style.display = 'block';
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        function clearResults() {
+            document.getElementById('error-message').style.display = 'none';
+            document.getElementById('coordinates-display').style.display = 'none';
+            document.getElementById('results-container').style.display = 'none';
+        }
+
+        function reverseGeocode(lat, lng) {
+            const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${API_KEY}`;
+            
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'OK' && data.results.length > 0) {
+                        displayAllResults(data.results);
+                    } else {
+                        showError(`❌ No results found. Status: ${data.status}`);
+                    }
+                    hideLoading();
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showError(`❌ Error: ${error.message}`);
+                    hideLoading();
+                });
+        }
+
+        function displayAllResults(results) {
+            const container = document.getElementById('results-container');
+            const listDiv = document.getElementById('results-list');
+            const countSpan = document.getElementById('results-count');
+            
+            listDiv.innerHTML = '';
+            
+            results.forEach((result, index) => {
+                const item = document.createElement('div');
+                item.className = 'result-item';
+                
+                const badgeText = index === 0 ? '🏆 MOST SPECIFIC' : `Result ${index + 1}`;
+                
+                // Map types to readable format
+                const typeMap = {
+                    'street_address': 'street address',
+                    'route': 'route',
+                    'neighborhood': 'neighborhood',
+                    'locality': 'city',
+                    'administrative_area_level_1': 'state/province',
+                    'administrative_area_level_2': 'county',
+                    'country': 'country',
+                    'postal_code': 'postal code',
+                    'postal_code_prefix': 'postal code prefix'
+                };
+                
+                const types = result.types.map(t => typeMap[t] || t).join(' • ');
+                const coords = result.geometry.location;
+                
+                // Show full precision coordinates for each result
+                item.innerHTML = `
+                    <div class="badge">${badgeText}</div>
+                    <div class="address">${result.formatted_address}</div>
+                    <div class="types">Types: ${types || 'N/A'}</div>
+                    <div class="metadata">
+                        <div class="meta-row">
+                            <span class="label">Coordinates:</span> 
+                            Lat: ${coords.lat}, Lng: ${coords.lng}
+                        </div>
+                        <div class="meta-row">
+                            <span class="label">Place ID:</span> ${result.place_id}
+                        </div>
+                        <div class="meta-row">
+                            <span class="label">Location Type:</span> ${result.geometry.location_type}
+                        </div>
+                    </div>
+                `;
+                
+                listDiv.appendChild(item);
+            });
+            
+            countSpan.textContent = `${results.length} results found`;
+            container.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
